@@ -19,6 +19,13 @@
 *         IO4    ------------------    LED1
 *         IO5    ------------------    LED2
 *         GND    ------------------    GND
+*    or
+*    ESP-WROOM-02 Pin
+*         3V3    ------------------    VCC
+*         IO0    ------------------    SW1
+*         IO4    ------------------    LED1
+*         IO5    ------------------    SW2
+*         GND    ------------------    GND
 *
 ******************************************************************************/
 
@@ -26,13 +33,15 @@
 #include <ESP8266WiFi.h>
 #include <ArduinoJson.h>  // Add JSON Library  https://github.com/bblanchon/ArduinoJson
 
-const char sThetaRemoteVersion[] = "v01.03";    //Last Update 2015-12-23 : corresponding to "ESP8266Arduino Core version 2.0.0"
-                                                // see http://esp8266.github.io/Arduino/versions/2.0.0/
+const char sThetaRemoteVersion[] = "v02.01";
+// Last Update 2018-04-09 : update for THETA V
 
 //--- ESP-WROOM-02 Hardwear ---
 const int buttonPin = 0;
 const int led1Pin = 4;
-const int led2Pin = 5;
+
+//const int led2Pin = 5;
+const int button2Pin = 5;
 
 //--- Wi-Fi Connect ---
 #define THETA_SSID_TOP_ADR    0
@@ -91,6 +100,7 @@ const char  sUrlCmdStat[]     = "/osc/commands/status" ;
 #define   CHK_MOVESTAT        10    //NO BUSY
 
 int     iRelease          = 0;
+int     iMode             = 0;
 int     iTakePicStat      = TAKE_PIC_STAT_DONE;
 int     iIntExpOnOff      = INT_EXP_OFF;          //For expansion
 int     iIntExpStat       = INT_EXP_STAT_STOP;
@@ -99,18 +109,24 @@ int     iStatChkCnt       = 0;
 String  strTakePicLastId  = "0";
 String  strSSID           = "SID_0000";
 String  strCaptureMode    = "";
+int     iApiVersion       = 0;
 
-#define   LED_BLINK_CYCLE     10
-int     iLed1BlinkStat    = 0;
-int     iLed1BlinkCycleCnt= LED_BLINK_CYCLE;
+//#define   LED_BLINK_CYCLE     10
+//int     iLed1BlinkStat    = 0;
+//int     iLed1BlinkCycleCnt= LED_BLINK_CYCLE;
+#define   LED_BLINK_CYCLE     20
+int     iLedBlinkStat    = 0;
+int     iLedBlinkCycleCnt= LED_BLINK_CYCLE;
 
 
 //===============================
 // User define function prototype
 //===============================
 void    INT_ReleaseSw(void);
+void    INT_modeSw(void);
 
-void    BlinkLed1(void);
+//void    BlinkLed1(void);
+void    BlinkLed(void);
 
 int     ConnectTHETA(void);
 int     SearchAndEnterTHETA(void);
@@ -128,6 +144,7 @@ int     ThetaAPI_Post_takePicture(void);
 int     ThetaAPI_Post__startCapture(void);
 int     ThetaAPI_Post__stopCapture(void);
 int     ThetaAPI_Post_getOptions(void);
+void ThetaAPI_set_captureMode(int mode);
 int     ThetaAPI_Post_commnads_status(void);
 
 
@@ -152,15 +169,20 @@ void setup() {
   Serial.println("");
   
   // set the digital pin as output:
+  //pinMode(led1Pin, OUTPUT);
+  //digitalWrite(led1Pin, LOW);
+  //pinMode(led2Pin, OUTPUT);
+  //digitalWrite(led2Pin, LOW);
   pinMode(led1Pin, OUTPUT);
   digitalWrite(led1Pin, LOW);
-  pinMode(led2Pin, OUTPUT);
-  digitalWrite(led2Pin, LOW);
   
   // initialize the pushbutton pin as an input:
   pinMode(buttonPin, INPUT);
   attachInterrupt( buttonPin, INT_ReleaseSw, FALLING);
   
+  pinMode(button2Pin, INPUT);
+  attachInterrupt(button2Pin, INT_modeSw, FALLING);
+
   // Define EEPROM SIZE
   EEPROM.begin(512);    //Max 4096Byte
 
@@ -187,25 +209,28 @@ void setup() {
 void loop() {
   
   if ( WiFi.status() != WL_CONNECTED ) {
+    // single LED version
+    digitalWrite(led1Pin, LOW);
     //LED2
-    digitalWrite(led2Pin, HIGH);
+    //digitalWrite(led2Pin, HIGH);
     
     if (iConnectOrScan == WIFI_CONNECT_THETA) {
       //LED1
-      digitalWrite(led1Pin, LOW);
+      //digitalWrite(led1Pin, LOW);
       
       iConnectOrScan = ConnectTHETA();
       if ( iConnectOrScan == WIFI_CONNECT_THETA ) {
         ThetaAPI_Get_Info();
         ThetaAPI_Post_State();
-        if ( strSSID.equals("SID_0000") ) {
+        //if ( strSSID.equals("SID_0000") ) {
+        if ( iApiVersion == 1) {
           ThetaAPI_Post_startSession();
         }
         iRelease = 0;
       }
     } else {
       //LED1
-      digitalWrite(led1Pin, HIGH);
+      //digitalWrite(led1Pin, HIGH);
       
       if( SearchAndEnterTHETA() == 1 ) {
         ReadThetaSsid(ssid);  
@@ -217,11 +242,11 @@ void loop() {
     }
   } else {
     //LED2
-    digitalWrite(led2Pin, LOW);
+    //digitalWrite(led2Pin, LOW);
     
     if ( iRelease == 1 ) {
       //LED1
-      digitalWrite(led1Pin, HIGH);
+      //digitalWrite(led1Pin, HIGH);
       
       //ThetaAPI_Post_getOptions();             //A reaction becomes dull, so it's eliminated.
       
@@ -238,7 +263,8 @@ void loop() {
             iIntExpOnOff = INT_EXP_OFF;         //When expanding, it's eliminated.
           }
         }
-      } else if ( strCaptureMode.equals("_video") ) {
+      } else if ( strCaptureMode.equals("_video")
+                 or strCaptureMode.equals("video") ) {
         ThetaAPI_Post_State();
         if ( iMoveStat == MOVE_STAT_STOP ) {
           iMoveStat = MOVE_STAT_REC;
@@ -253,17 +279,42 @@ void loop() {
       
       delay(1000);                              //To avoid release of the fast cycle.
       iRelease = 0;
-    } else {
-      //LED1
-      if ( (iTakePicStat == TAKE_PIC_STAT_BUSY) || (iMoveStat == MOVE_STAT_REC) || (iIntExpStat == INT_EXP_STAT_RUN) ) {
-        digitalWrite(led1Pin, HIGH);
-      } else {
-        if ( iIntExpOnOff == INT_EXP_ON ) {
-          BlinkLed1();
-        } else {
-          digitalWrite(led1Pin, LOW);
-        }
+    }  else if ( iMode == 1 ) {
+      // mode change
+      if ( strCaptureMode.equals("image") )  {
+        // set video mode
+        ThetaAPI_set_captureMode(1);
+      } else if ( strCaptureMode.equals("_video")
+                  or strCaptureMode.equals("video") ) {
+        // set image mode
+        ThetaAPI_set_captureMode(0);
       }
+      delay(1000); //To avoid release of the fast cycle.
+      iMode = 0;
+    } else {
+
+      // signel LED version
+      if ( strCaptureMode.equals("_video")
+           or strCaptureMode.equals("video") ) {
+        if (iMoveStat == MOVE_STAT_REC) {
+          BlinkLed();
+        } else {
+          digitalWrite(led1Pin, HIGH);
+        }
+      } else {
+        digitalWrite(led1Pin, LOW);
+      }
+
+      //LED1
+      //if ( (iTakePicStat == TAKE_PIC_STAT_BUSY) || (iMoveStat == MOVE_STAT_REC) || (iIntExpStat == INT_EXP_STAT_RUN) ) {
+      //  digitalWrite(led1Pin, HIGH);
+      //} else {
+      //  if ( iIntExpOnOff == INT_EXP_ON ) {
+      //    BlinkLed1();
+      //  } else {
+      //    digitalWrite(led1Pin, LOW);
+      //  }
+      //}
       
       iStatChkCnt++;
       if (iStatChkCnt >= STATUS_CHK_CYCLE){
@@ -299,9 +350,15 @@ void INT_ReleaseSw(void)
   iRelease =1;
 }
 
+void INT_modeSw(void)
+{
+  iMode = 1;
+}
+
 //-------------------------------------------
 // LED1 Blink Control
 //-------------------------------------------
+/*
 void    BlinkLed1(void)
 {
   iLed1BlinkCycleCnt++;
@@ -313,6 +370,26 @@ void    BlinkLed1(void)
       digitalWrite(led1Pin, HIGH);
     } else {
       iLed1BlinkStat = 0;
+      digitalWrite(led1Pin, LOW);
+    }
+  }
+  return;
+}
+*/
+//-------------------------------------------
+// single LED Blink Control
+//-------------------------------------------
+void BlinkLed(void)
+{
+  iLedBlinkCycleCnt++;
+  if (iLedBlinkCycleCnt >= LED_BLINK_CYCLE ) {
+    iLedBlinkCycleCnt=0;
+
+    if ( iLedBlinkStat == 0 ) {
+      iLedBlinkStat = 1;
+      digitalWrite(led1Pin, HIGH);
+    } else {
+      iLedBlinkStat = 0;
       digitalWrite(led1Pin, LOW);
     }
   }
@@ -447,7 +524,8 @@ int CheckThetaSsid( const char* pcSsid )
 
   String strSsid = String(pcSsid);
   if ( strSsid.length() == THETA_SSID_BYTE_LEN ) {
-    if ( ( strSsid.startsWith("THETAXS") == true ) &&
+    //if ( ( strSsid.startsWith("THETAXS") == true ) &&
+    if ( ( strSsid.startsWith("THETA") == true ) &&
          ( strSsid.endsWith(".OSC") == true )      ){
       //Serial.print("pass=");
       for (int j=THETA_PASS_OFFSET; j<(THETA_PASS_OFFSET+THETA_PASS_BYTE_LEN); j++) {
@@ -644,7 +722,7 @@ int ThetaAPI_Get_Info(void)
 int ThetaAPI_Post_State(void)
 {
   int iRet=0;
-  
+
   String strSendData = String("");
   String strJson = SimpleHttpProtocol("POST", (char*)sUrlState, (char*)sHost, iHttpPort, strSendData, HTTP_TIMEOUT_STATE );
   //Serial.println("JSON:[" + strJson + "], len=" + strJson.length() );
@@ -659,16 +737,23 @@ int ThetaAPI_Post_State(void)
       Serial.println("ThetaAPI_Post_State() : parseObject() failed.");
       iRet=-1;
     } else {
-      const char* sessionId       = root["state"]["sessionId"];
       const char* batteryLevel    = root["state"]["batteryLevel"];
       const char* _captureStatus  = root["state"]["_captureStatus"];
       const char* _recordedTime   = root["state"]["_recordedTime"];
       const char* _recordableTime = root["state"]["_recordableTime"];
-      Serial.println("ThetaAPI_Post_State() : sessionId[" + String(sessionId) + "], batteryLevel[" + String(batteryLevel) +
-                      "], _captureStatus[" + String(_captureStatus) + 
-                      "], _recordedTime[" + String(_recordedTime) + "], _recordableTime[" + String(_recordableTime) + "]");
+      const char* _apiVersion     = root["state"]["_apiVersion"];
+      Serial.println("ThetaAPI_Post_State() :"
+                     " _apiVersion[" + String(_apiVersion) +
+                     "], batteryLevel[" + String(batteryLevel) +
+                     "], _captureStatus[" + String(_captureStatus) + 
+                     "], _recordedTime[" + String(_recordedTime) +
+                     "], _recordableTime[" + String(_recordableTime) + "]");
       
-      strSSID = String(sessionId);
+      iApiVersion = String(_apiVersion).toInt();
+      if (iApiVersion == 1) {
+        const char* sessionId = root["state"]["sessionId"];
+        strSSID = String(sessionId);
+      }
       
       String strCaptureStatus  = String(_captureStatus);
       String strRecordedTime   = String(_recordedTime);
@@ -726,7 +811,10 @@ int ThetaAPI_Post_takePicture(void)
   
   iTakePicStat = TAKE_PIC_STAT_BUSY;
   
-  String strSendData = String("{\"name\": \"camera.takePicture\", \"parameters\": { \"sessionId\": \"" + strSSID + "\" } }");
+  String strSendData = String("{\"name\": \"camera.takePicture\" }");
+  if ( iApiVersion == 1) {
+      strSendData = String("{\"name\": \"camera.takePicture\", \"parameters\": { \"sessionId\": \"" + strSSID + "\" } }");
+  }
   String strJson = SimpleHttpProtocol("POST", (char*)sUrlCmdExe, (char*)sHost, iHttpPort, strSendData, HTTP_TIMEOUT_NORMAL );
   //Serial.println("JSON:[" + strJson + "], len=" + strJson.length() );
   
@@ -764,7 +852,10 @@ int ThetaAPI_Post__startCapture(void)
 {
   int iRet=0;
 
-  String strSendData = String("{\"name\": \"camera._startCapture\", \"parameters\": { \"sessionId\": \"" + strSSID + "\" } }");
+  String strSendData = String("{\"name\": \"camera.startCapture\" }");
+  if ( iApiVersion == 1) {
+      strSendData = String("{\"name\": \"camera._startCapture\", \"parameters\": { \"sessionId\": \"" + strSSID + "\" } }");
+  }  
   String strJson = SimpleHttpProtocol("POST", (char*)sUrlCmdExe, (char*)sHost, iHttpPort, strSendData, HTTP_TIMEOUT_STARTCAP );
   //Serial.println("JSON:[" + strJson + "], len=" + strJson.length() );
   
@@ -801,7 +892,10 @@ int ThetaAPI_Post__stopCapture(void)
 {
   int iRet=0;
   
-  String strSendData = String("{\"name\": \"camera._stopCapture\", \"parameters\": { \"sessionId\": \"" + strSSID + "\" } }");
+  String strSendData = String("{\"name\": \"camera.stopCapture\" }");
+  if ( iApiVersion == 1) {
+      strSendData = String("{\"name\": \"camera._stopCapture\", \"parameters\": { \"sessionId\": \"" + strSSID + "\" } }");
+  }
   String strJson = SimpleHttpProtocol("POST", (char*)sUrlCmdExe, (char*)sHost, iHttpPort, strSendData, HTTP_TIMEOUT_STOPCAP );
   //Serial.println("JSON:[" + strJson + "], len=" + strJson.length() );
   
@@ -838,7 +932,10 @@ int     ThetaAPI_Post_getOptions(void)
 {
   int iRet=0;
   
-  String strSendData = String("{\"name\": \"camera.getOptions\", \"parameters\": { \"sessionId\": \"" + strSSID + "\", \"optionNames\": [\"captureMode\"] } }");
+  String strSendData = String("{\"name\": \"camera.getOptions\", \"parameters\": { \"optionNames\": [\"captureMode\"] } }");
+  if ( iApiVersion == 1) {
+      strSendData = String("{\"name\": \"camera.getOptions\", \"parameters\": { \"sessionId\": \"" + strSSID + "\", \"optionNames\": [\"captureMode\"] } }");
+  }
   String strJson = SimpleHttpProtocol("POST", (char*)sUrlCmdExe, (char*)sHost, iHttpPort, strSendData, HTTP_TIMEOUT_NORMAL );
   //Serial.println("JSON:[" + strJson + "], len=" + strJson.length() );
 
@@ -871,6 +968,40 @@ int     ThetaAPI_Post_getOptions(void)
   }
   
   return iRet;
+}
+//----------------
+// mode: 0 for "image"
+//       1 fpr "video"
+void ThetaAPI_set_captureMode(int mode)
+{
+  String _strCaptureMode;
+  if (mode == 0) {
+    _strCaptureMode = String("image");
+  } else if (mode == 1) {
+    if (iApiVersion == 1) {
+      _strCaptureMode = String("_video");
+    } else {
+      _strCaptureMode = String("video");
+    }
+  }
+
+  String strSendData = String(
+    "{\"name\": \"camera.setOptions\","
+    " \"parameters\": {"
+    " \"options\": {"
+    " \"captureMode\": \"" + _strCaptureMode + "\"} } }");
+  if (iApiVersion == 1) {
+      strSendData = String(
+        "{\"name\": \"camera.setOptions\","
+        " \"parameters\": {"
+        " \"sessionId\": \"" + strSSID + "\","
+        " \"options\": {"
+        " \"captureMode\": \"" + _strCaptureMode + "\"} } }");
+  }
+  //Serial.println("strSendData = " + strSendData);
+  String strJson = SimpleHttpProtocol("POST", (char*)sUrlCmdExe, (char*)sHost, iHttpPort, strSendData, HTTP_TIMEOUT_NORMAL );
+  //Serial.println("JSON:[" + strJson + "], len=" + strJson.length() );
+  return;
 }
 //----------------
 int     ThetaAPI_Post_commnads_status(void)
@@ -915,3 +1046,4 @@ int     ThetaAPI_Post_commnads_status(void)
   
   return iRet;
 }
+
