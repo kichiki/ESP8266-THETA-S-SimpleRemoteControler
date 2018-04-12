@@ -111,13 +111,9 @@ String  strSSID           = "SID_0000";
 String  strCaptureMode    = "";
 int     iApiVersion       = 0;
 
-//#define   LED_BLINK_CYCLE     10
-//int     iLed1BlinkStat    = 0;
-//int     iLed1BlinkCycleCnt= LED_BLINK_CYCLE;
-#define   LED_BLINK_CYCLE     20
-int     iLedBlinkStat    = 0;
-int     iLedBlinkCycleCnt= LED_BLINK_CYCLE;
-
+unsigned long startMillisBlink;
+unsigned long currentMillisBlink;
+unsigned long periodMillisBlink = 500;
 
 //===============================
 // User define function prototype
@@ -381,19 +377,12 @@ void    BlinkLed1(void)
 //-------------------------------------------
 void BlinkLed(void)
 {
-  iLedBlinkCycleCnt++;
-  if (iLedBlinkCycleCnt >= LED_BLINK_CYCLE ) {
-    iLedBlinkCycleCnt=0;
-
-    if ( iLedBlinkStat == 0 ) {
-      iLedBlinkStat = 1;
-      digitalWrite(led1Pin, HIGH);
-    } else {
-      iLedBlinkStat = 0;
-      digitalWrite(led1Pin, LOW);
-    }
+  currentMillisBlink = millis();
+  if (currentMillisBlink - startMillisBlink >= periodMillisBlink)
+  {
+    digitalWrite(led1Pin, !digitalRead(led1Pin));
+    startMillisBlink = currentMillisBlink;
   }
-  return;
 }
 
 //-------------------------------------------
