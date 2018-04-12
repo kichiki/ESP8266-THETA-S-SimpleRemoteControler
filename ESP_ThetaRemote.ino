@@ -56,7 +56,8 @@ char password[THETA_PASS_BYTE_LEN+1] = "00000000";          //This initial value
 #define WIFI_SCAN_THETA       1
 int iConnectOrScan = WIFI_CONNECT_THETA;
 
-#define NEAR_RSSI_THRESHOLD   -45   //[db]
+//#define NEAR_RSSI_THRESHOLD   -45   //[db]
+#define NEAR_RSSI_THRESHOLD   -50   //[db]
 
 //--- HTTP  ---
 // Use WiFiClient class to create TCP connections
@@ -111,13 +112,9 @@ String  strSSID           = "SID_0000";
 String  strCaptureMode    = "";
 int     iApiVersion       = 0;
 
-//#define   LED_BLINK_CYCLE     10
-//int     iLed1BlinkStat    = 0;
-//int     iLed1BlinkCycleCnt= LED_BLINK_CYCLE;
-#define   LED_BLINK_CYCLE     20
-int     iLedBlinkStat    = 0;
-int     iLedBlinkCycleCnt= LED_BLINK_CYCLE;
-
+unsigned long startMillisBlink;
+unsigned long currentMillisBlink;
+unsigned long periodMillisBlink = 500;
 
 //===============================
 // User define function prototype
@@ -160,10 +157,10 @@ void setup() {
   Serial.println("");
   Serial.println("");
   Serial.println("-----------------------------------------");
-  Serial.println("  RICOH THETA S Remote Control Software  ");
+  Serial.println(" RICOH THETA S/V Remote Control Software ");
   Serial.println("          Single Button Edition          ");
   Serial.println("                   for                   ");
-  Serial.println("  Switch Science ESP-WROOM-02 Dev.board  ");
+  Serial.println("              ESP-WROOM-02               ");
   Serial.println("             FW Ver : " + String(sThetaRemoteVersion) );
   Serial.println("-----------------------------------------");
   Serial.println("");
@@ -210,7 +207,8 @@ void loop() {
   
   if ( WiFi.status() != WL_CONNECTED ) {
     // single LED version
-    digitalWrite(led1Pin, LOW);
+    BlinkLed();
+
     //LED2
     //digitalWrite(led2Pin, HIGH);
     
@@ -227,6 +225,9 @@ void loop() {
           ThetaAPI_Post_startSession();
         }
         iRelease = 0;
+
+	// single LED version
+        digitalWrite(led1Pin, LOW);
       }
     } else {
       //LED1
@@ -237,7 +238,7 @@ void loop() {
         SetThetaSsidToPassword(ssid, password);
         iConnectOrScan = WIFI_CONNECT_THETA;
       } else {
-        iConnectOrScan = WIFI_SCAN_THETA;
+	iConnectOrScan = WIFI_SCAN_THETA;
       }
     }
   } else {
@@ -302,7 +303,11 @@ void loop() {
           digitalWrite(led1Pin, HIGH);
         }
       } else {
-        digitalWrite(led1Pin, LOW);
+        if (iTakePicStat == TAKE_PIC_STAT_BUSY) {
+	  digitalWrite(led1Pin, HIGH);
+        } else {
+          digitalWrite(led1Pin, LOW);
+	}
       }
 
       //LED1
@@ -381,19 +386,12 @@ void    BlinkLed1(void)
 //-------------------------------------------
 void BlinkLed(void)
 {
-  iLedBlinkCycleCnt++;
-  if (iLedBlinkCycleCnt >= LED_BLINK_CYCLE ) {
-    iLedBlinkCycleCnt=0;
-
-    if ( iLedBlinkStat == 0 ) {
-      iLedBlinkStat = 1;
-      digitalWrite(led1Pin, HIGH);
-    } else {
-      iLedBlinkStat = 0;
-      digitalWrite(led1Pin, LOW);
-    }
+  currentMillisBlink = millis();
+  if (currentMillisBlink - startMillisBlink >= periodMillisBlink)
+  {
+    digitalWrite(led1Pin, !digitalRead(led1Pin));
+    startMillisBlink = currentMillisBlink;
   }
-  return;
 }
 
 //-------------------------------------------
