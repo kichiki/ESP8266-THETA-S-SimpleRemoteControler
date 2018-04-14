@@ -11,9 +11,9 @@ Please refer to the [original sketch](https://github.com/katsuya-san/ESP8266-THE
 ## Changes
 
 * adapted for [RICOH THETA API v2.1](https://developers.theta360.com/en/docs/v2.1/api_reference/)
-    * [original sketch](https://github.com/katsuya-san/ESP8266-THETA-S-SimpleRemoteControler) supports only [RICOH THETA API v2.0](https://developers.theta360.com/en/docs/v2.0/api_reference/)
+    * The [original](https://github.com/katsuya-san/ESP8266-THETA-S-SimpleRemoteControler) supports only [RICOH THETA API v2.0](https://developers.theta360.com/en/docs/v2.0/api_reference/)
 * modified the interface with two buttons and one LED
-    * [original sketch](https://github.com/katsuya-san/ESP8266-THETA-S-SimpleRemoteControler) supports only [RICOH THETA API v2.0](https://developers.theta360.com/en/docs/v2.0/api_reference/) is for one button-two LED setting
+    * The [original](https://github.com/katsuya-san/ESP8266-THETA-S-SimpleRemoteControler) is for one button-two LED setting
 
 
 ## Parts
